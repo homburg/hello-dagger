@@ -1,0 +1,23 @@
+name: Build with dagger
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: jdx/rtx-action@v1
+        with:
+          install: false
+
+      - run: rtx install dagger
+      - run: rtx install node
+
+      - run: yarn install
+
+      - run: just build --progress plain
