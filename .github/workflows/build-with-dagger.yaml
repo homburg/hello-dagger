@@ -16,3 +16,5 @@ jobs:
       - run: bun install
 
       - run: just build --progress plain
+        env:
+          DAGGER_CLOUD_TOKEN: ${{ secrets.DAGGER_CLOUD_TOKEN }}
