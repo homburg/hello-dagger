@@ -5,6 +5,10 @@ connect(
     // create a cache volume
     const nodeCache = client.cacheVolume("node");
 
+    const platform = await client.defaultPlatform();
+
+    const arch = platform.includes("arm64") ? "arm64" : "x64";
+
     const worker = client
       .container()
       .from("ubuntu")
@@ -22,7 +26,7 @@ connect(
         ["apt-get update", "apt-get install -y xz-utils"].join(" && "),
       ])
       .withExec(
-        "curl -L https://github.com/jdx/rtx/releases/download/v2023.10.1/rtx-v2023.10.1-linux-arm64.tar.xz -o rtx.tar.xz".split(
+        `curl -L https://github.com/jdx/rtx/releases/download/v2023.10.1/rtx-v2023.10.1-linux-${arch}.tar.xz -o rtx.tar.xz`.split(
           /\s+/
         )
       )
