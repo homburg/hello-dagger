@@ -40,7 +40,7 @@ connect(
         ["rtx install --yes", "rtx cache clear"].join(" && "),
       ]);
 
-    const diff = await base.directory("/").diff(builder.directory("/"));
+    const diff = base.directory("/").diff(builder.directory("/"));
 
     await diff.sync();
     // await diff.export("tmp/builder-diff");
