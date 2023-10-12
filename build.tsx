@@ -50,7 +50,8 @@ connect(
 
     const diff = await base.directory("/").diff(builder.directory("/"));
 
-    await diff.export("tmp/builder-diff");
+    await diff.sync();
+    // await diff.export("tmp/builder-diff");
 
     return;
 
