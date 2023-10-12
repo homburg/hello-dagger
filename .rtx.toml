@@ -1,5 +1,5 @@
 [tools]
-dagger = "0.8.7"
+dagger = "0.8.8"
 node = "18.18.0"
 bun = "1.0.4"
 just = "1.14.0"
