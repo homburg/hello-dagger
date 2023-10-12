@@ -5,8 +5,15 @@ on:
     branches:
       - main
 
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
 jobs:
-  run:
+  build:
+    permissions:
+      contents: read
+      packages: write
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -15,6 +22,19 @@ jobs:
 
       - run: bun install
 
-      - run: just build --progress plain
+      - name: Log in to the Container registry
+        uses: docker/login-action@65b78e6e13532edd9afa3aa52ac7964289d1a9c1
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - run: just
         env:
           DAGGER_CLOUD_TOKEN: ${{ secrets.DAGGER_CLOUD_TOKEN }}
+
+      # for ephemeral runners only: override the default docker stop timeout and
+      # give the Dagger Engine more time to push cache data to Dagger Cloud
+      - name: Stop Engine
+        run: docker stop -t 300 $(docker ps --filter name="dagger-engine-*" -q)
+        if: always()

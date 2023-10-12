@@ -1,56 +1,49 @@
-import { connect } from "@dagger.io/dagger";
+import {
+  Client,
+  Container,
+  Directory,
+  GraphQLRequestError,
+  connect,
+} from "@dagger.io/dagger";
+
+const rtx_version = "v2023.10.1";
 
 connect(
   async (client) => {
     // create a cache volume
-    const nodeCache = client.cacheVolume("node");
+    const node_cache = client.cacheVolume("node");
 
     const platform = await client.defaultPlatform();
 
     const arch = platform.includes("arm64") ? "arm64" : "x64";
 
-    const worker = client
-      .container()
-      .from("ubuntu")
-      .withWorkdir("/wrk")
-      .withExec([
-        "sh",
-        "-c",
-        "apt-get update && apt-get install --yes git curl unzip",
-      ]);
+    const worker = worker_container(client);
 
-    const rtx = worker
-      .withExec([
-        "sh",
-        "-c",
-        ["apt-get update", "apt-get install -y xz-utils"].join(" && "),
-      ])
-      .withExec(
-        `curl -L https://github.com/jdx/rtx/releases/download/v2023.10.1/rtx-v2023.10.1-linux-${arch}.tar.xz -o rtx.tar.xz`.split(
-          /\s+/
-        )
-      )
-      .withExec("tar xvf rtx.tar.xz".split(/\s+/));
+    const rtx = await rtx_container(client, await worker(), arch);
 
-    const base = worker.withFile("/usr/local/bin/rtx", rtx.file("rtx/bin/rtx"));
+    const base = (await worker()).withFile(
+      "/usr/local/bin/rtx",
+      (await rtx()).file("rtx/bin/rtx")
+    );
 
-    const baseExcludes = ["tmp", "**/node_modules"];
+    const base_excludes = ["tmp", "**/node_modules"];
 
-    const sourceDirectory = client
+    const source_directory = client
       .host()
-      .directory(".", { exclude: [...baseExcludes] });
+      .directory(".", { exclude: [...base_excludes] });
 
     const builder = base
-      .withDirectory(".", sourceDirectory)
+      .withDirectory(".", source_directory)
       .withExec([
         "sh",
         "-c",
         ["rtx install --yes", "rtx cache clear"].join(" && "),
       ]);
 
-    const diff = await base.directory("/").diff(builder.directory("/"));
+    const diff = base.directory("/").diff(builder.directory("/"));
 
-    await diff.export("tmp/builder-diff");
+    await diff.sync();
+    // await diff.export("tmp/builder-diff");
 
     return;
 
@@ -64,7 +57,7 @@ connect(
       .withDirectory("/src", client.host().directory("."), {
         exclude: ["node_modules/", "ci/"],
       })
-      .withMountedCache("/src/node_modules", nodeCache);
+      .withMountedCache("/src/node_modules", node_cache);
 
     // set the working directory in the container
     // install application dependencies
@@ -88,7 +81,110 @@ connect(
   { LogOutput: process.stdout }
 );
 
-async function publishNginxImage(client, buildDir) {
+async function rtx_container(client: Client, worker: Container, arch: string) {
+  let container: Container;
+  return async () => {
+    if (!process.env.REGISTRY) {
+      return new_rtx_container(worker, arch);
+    }
+    container =
+      container || (await new_published_rtx_container(client, worker, arch));
+    return container;
+  };
+}
+
+async function new_published_rtx_container(
+  client: Client,
+  worker: Container,
+  arch: string
+) {
+  const rtx_image_name = process.env.REGISTRY
+    ? `${process.env.REGISTRY}/${process.env.IMAGE_NAME}/rtx:${rtx_version}`
+    : "";
+
+  const rtx = await client
+    .container()
+    .from(rtx_image_name)
+    .sync()
+    .catch(async (e) => {
+      if (!is_image_not_found_error(e)) {
+        throw e;
+      }
+
+      const c = new_rtx_container(worker, arch);
+
+      await c.publish(rtx_image_name);
+
+      return c;
+    });
+  return rtx;
+}
+
+function new_rtx_container(worker: Container, arch: string) {
+  return worker
+    .withExec([
+      "sh",
+      "-c",
+      ["apt-get update", "apt-get install -y xz-utils"].join(" && "),
+    ])
+    .withExec(
+      `curl -L https://github.com/jdx/rtx/releases/download/${rtx_version}/rtx-${rtx_version}-linux-${arch}.tar.xz -o rtx.tar.xz`.split(
+        /\s+/
+      )
+    )
+    .withExec("tar xvf rtx.tar.xz".split(/\s+/));
+}
+
+function worker_container(client: Client) {
+  let container: Container;
+  return async () => {
+    if (!process.env.REGISTRY) {
+      return new_worker_container(client);
+    }
+    container = container || (await new_published_worker_container(client));
+    return container;
+  };
+}
+
+async function new_published_worker_container(client: Client) {
+  const worker_image_name = process.env.REGISTRY
+    ? `${process.env.REGISTRY}/${process.env.IMAGE_NAME}/worker`
+    : "";
+
+  return await client
+    .container()
+    .from(worker_image_name)
+    .sync()
+    .catch(async (e) => {
+      if (!is_image_not_found_error(e)) {
+        throw e;
+      }
+
+      const c = new_worker_container(client);
+
+      await c.publish(worker_image_name);
+
+      return c;
+    });
+}
+
+function new_worker_container(client: Client) {
+  return client
+    .container()
+    .from("ubuntu")
+    .withWorkdir("/wrk")
+    .withExec([
+      "sh",
+      "-c",
+      "apt-get update && apt-get install --yes unzip curl git",
+    ]);
+}
+
+function is_image_not_found_error(e: unknown) {
+  return e instanceof GraphQLRequestError && e.message.includes("not found");
+}
+
+async function publishNginxImage(client: Client, buildDir: Directory) {
   const imageRef = await client
     .container()
     .from("nginx:1.23-alpine")
