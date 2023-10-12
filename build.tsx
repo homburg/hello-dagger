@@ -11,40 +11,61 @@ connect(
 
     const arch = platform.includes("arm64") ? "arm64" : "x64";
 
-    const rtx_image = `${process.env.REGISTRY}/${process.env.IMAGE_NAME}/rtx:${rtx_version}`;
+    const rtx_image_name = `${process.env.REGISTRY}/${process.env.IMAGE_NAME}/rtx:${rtx_version}`;
+    const worker_image_name = `${process.env.REGISTRY}/${process.env.IMAGE_NAME}/worker`;
 
-    try {
-      await client.container().from(rtx_image).sync();
-    } catch (e: unknown) {
-      if (isImageNotFoundError(e)) {
-        console.log("Image not found");
-      }
-    }
+    const worker = await client
+      .container()
+      .from(worker_image_name)
+      .sync()
+      .catch(async (e) => {
+        if (!isImageNotFoundError(e)) {
+          throw e;
+        }
+
+        const c = client
+          .container()
+          .from("ubuntu")
+          .withWorkdir("/wrk")
+          .withExec([
+            "sh",
+            "-c",
+            "apt-get update && apt-get install --yes git curl unzip",
+          ]);
+
+        await c.publish(worker_image_name);
+
+        return c;
+      });
+
+    const rtx = await client
+      .container()
+      .from(rtx_image_name)
+      .sync()
+      .catch(async (e) => {
+        if (!isImageNotFoundError(e)) {
+          throw e;
+        }
+
+        const c = worker
+          .withExec([
+            "sh",
+            "-c",
+            ["apt-get update", "apt-get install -y xz-utils"].join(" && "),
+          ])
+          .withExec(
+            `curl -L https://github.com/jdx/rtx/releases/download/${rtx_version}/rtx-${rtx_version}-linux-${arch}.tar.xz -o rtx.tar.xz`.split(
+              /\s+/
+            )
+          )
+          .withExec("tar xvf rtx.tar.xz".split(/\s+/));
+
+        await c.publish(rtx_image_name);
+
+        return c;
+      });
 
     return;
-
-    const worker = client
-      .container()
-      .from("ubuntu")
-      .withWorkdir("/wrk")
-      .withExec([
-        "sh",
-        "-c",
-        "apt-get update && apt-get install --yes git curl unzip",
-      ]);
-
-    const rtx = worker
-      .withExec([
-        "sh",
-        "-c",
-        ["apt-get update", "apt-get install -y xz-utils"].join(" && "),
-      ])
-      .withExec(
-        `curl -L https://github.com/jdx/rtx/releases/download/${rtx_version}/rtx-${rtx_version}-linux-${arch}.tar.xz -o rtx.tar.xz`.split(
-          /\s+/
-        )
-      )
-      .withExec("tar xvf rtx.tar.xz".split(/\s+/));
 
     const base = worker.withFile("/usr/local/bin/rtx", rtx.file("rtx/bin/rtx"));
 
