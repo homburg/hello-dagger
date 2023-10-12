@@ -65,8 +65,6 @@ connect(
         return c;
       });
 
-    return;
-
     const base = worker.withFile("/usr/local/bin/rtx", rtx.file("rtx/bin/rtx"));
 
     const base_excludes = ["tmp", "**/node_modules"];
