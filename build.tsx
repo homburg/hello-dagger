@@ -11,7 +11,7 @@ connect(
 
     const arch = platform.includes("arm64") ? "arm64" : "x64";
 
-    const rtx_image = process.env.REGISTRY + "/rtx:" + rtx_version;
+    const rtx_image = `${process.env.REGISTRY}/${process.env.IMAGE_NAME}/rtx:${rtx_version}`;
 
     try {
       await client.container().from(rtx_image).sync();
