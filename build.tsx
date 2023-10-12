@@ -1,13 +1,27 @@
-import { connect } from "@dagger.io/dagger";
+import { GraphQLRequestError, connect } from "@dagger.io/dagger";
+
+const rtx_version = "v2023.10.1";
 
 connect(
   async (client) => {
     // create a cache volume
-    const nodeCache = client.cacheVolume("node");
+    const node_cache = client.cacheVolume("node");
 
     const platform = await client.defaultPlatform();
 
     const arch = platform.includes("arm64") ? "arm64" : "x64";
+
+    const rtx_image = process.env.REGISTRY + "/rtx:" + rtx_version;
+
+    try {
+      await client.container().from(rtx_image).sync();
+    } catch (e: unknown) {
+      if (isImageNotFoundError(e)) {
+        console.log("Image not found");
+      }
+    }
+
+    return;
 
     const worker = client
       .container()
@@ -26,7 +40,7 @@ connect(
         ["apt-get update", "apt-get install -y xz-utils"].join(" && "),
       ])
       .withExec(
-        `curl -L https://github.com/jdx/rtx/releases/download/v2023.10.1/rtx-v2023.10.1-linux-${arch}.tar.xz -o rtx.tar.xz`.split(
+        `curl -L https://github.com/jdx/rtx/releases/download/${rtx_version}/rtx-${rtx_version}-linux-${arch}.tar.xz -o rtx.tar.xz`.split(
           /\s+/
         )
       )
@@ -34,14 +48,14 @@ connect(
 
     const base = worker.withFile("/usr/local/bin/rtx", rtx.file("rtx/bin/rtx"));
 
-    const baseExcludes = ["tmp", "**/node_modules"];
+    const base_excludes = ["tmp", "**/node_modules"];
 
-    const sourceDirectory = client
+    const source_directory = client
       .host()
-      .directory(".", { exclude: [...baseExcludes] });
+      .directory(".", { exclude: [...base_excludes] });
 
     const builder = base
-      .withDirectory(".", sourceDirectory)
+      .withDirectory(".", source_directory)
       .withExec([
         "sh",
         "-c",
@@ -65,7 +79,7 @@ connect(
       .withDirectory("/src", client.host().directory("."), {
         exclude: ["node_modules/", "ci/"],
       })
-      .withMountedCache("/src/node_modules", nodeCache);
+      .withMountedCache("/src/node_modules", node_cache);
 
     // set the working directory in the container
     // install application dependencies
@@ -88,6 +102,10 @@ connect(
   },
   { LogOutput: process.stdout }
 );
+
+function isImageNotFoundError(e: unknown) {
+  return e instanceof GraphQLRequestError && e.message.includes("not found");
+}
 
 async function publishNginxImage(client, buildDir) {
   const imageRef = await client
